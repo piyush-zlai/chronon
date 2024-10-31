@@ -58,6 +58,14 @@ trait Format {
   def fileFormatString(format: String): String
 }
 
+/**
+ * [DPRTI-492][OAI_CHANGES]: Dynamically provide table Format depending on table name.
+ * This supports reading/writing tables with heterogeneous formats.
+ */
+trait FormatProvider {
+  def get(tableName: String): Format
+}
+
 case object Hive extends Format {
   def parseHivePartition(pstring: String): Map[String, String] = {
     pstring
@@ -144,14 +152,52 @@ case class TableUtils(sparkSession: SparkSession) {
 
   val useIceberg: Boolean = sparkSession.conf.get("spark.chronon.table_write.iceberg", "false").toBoolean
 
-  // write data using the relevant supported Chronon write format
-  val maybeWriteFormat: Option[Format] =
-    sparkSession.conf.getOption("spark.chronon.table_write.format").map(_.toLowerCase) match {
-      case Some("hive")    => Some(Hive)
-      case Some("iceberg") => Some(Iceberg)
-      case Some("delta")   => Some(DeltaLake)
-      case _               => None
+  // [DPRTI-492][OAI_CHANGES]: Although Chronon OSS supports (WIP) delta, there's delta version mismatch causing
+  // runtime: java.lang.NoSuchMethodError: 'org.apache.spark.sql.delta.Snapshot org.apache.spark.sql.delta.DeltaLog.update(boolean)'
+  // In OAI delta, DeltaLog.update(boolean, Option[Long]). Therefore, we have to supply our own delta format
+  // compiled with the delta version we use.
+  private lazy val tableReadFormatProvider: FormatProvider =  {
+    sparkSession.conf.getOption("spark.chronon.table_read.format_provider") match {
+      case Some(clazzName) =>
+        // Load object instead of class/case class
+        Class.forName(clazzName).getField("MODULE$").get(null).asInstanceOf[FormatProvider]
+      case None => (tableName: String) => {
+        if (isIcebergTable(tableName)) {
+          Iceberg
+        } else if (isDeltaTable(tableName)) {
+          DeltaLake
+        } else {
+          Hive
+        }
+      }
     }
+  }
+
+  private lazy val tableWriteFormatProvider: FormatProvider = {
+    sparkSession.conf.getOption("spark.chronon.table_write.format_provider") match {
+      case Some(clazzName) =>
+        val clazz = Class.forName(clazzName)
+        clazz.getField("MODULE$").get(null).asInstanceOf[FormatProvider]
+      case None => (_: String) => {
+        // Default provider just looks for any default config.
+        // Unlike read table, these write tables might not already exist.
+        val maybeFormat = sparkSession.conf.getOption("spark.chronon.default_table_write.format").map(_.toLowerCase) match {
+          case Some("hive") => Some(Hive)
+          case Some("iceberg") => Some(Iceberg)
+          case Some("delta") => Some(DeltaLake)
+          case _ => None
+        }
+        (useIceberg, maybeFormat) match {
+          // if explicitly configured Iceberg - we go with that setting
+          case (true, _) => Iceberg
+          // else if there is a write format we pick that
+          case (false, Some(format)) => format
+          // fallback to hive (parquet)
+          case (false, None) => Hive
+        }
+      }
+    }
+  }
 
   val cacheLevel: Option[StorageLevel] = Try {
     if (cacheLevelString == "NONE") None
@@ -207,20 +253,12 @@ case class TableUtils(sparkSession: SparkSession) {
     }
   }
 
-  def tableFormat(tableName: String): Format = {
-    if (isIcebergTable(tableName)) {
-      Iceberg
-    } else if (isDeltaTable(tableName)) {
-      DeltaLake
-    } else {
-      Hive
-    }
-  }
+  def tableReadFormat(tableName: String): Format = tableReadFormatProvider.get(tableName)
 
   // return all specified partition columns in a table in format of Map[partitionName, PartitionValue]
   def allPartitions(tableName: String, partitionColumnsFilter: Seq[String] = Seq.empty): Seq[Map[String, String]] = {
     if (!tableExists(tableName)) return Seq.empty[Map[String, String]]
-    val format = tableFormat(tableName)
+    val format = tableReadFormat(tableName)
     val partitionSeq = format.partitions(tableName)(sparkSession)
     if (partitionColumnsFilter.isEmpty) {
       partitionSeq
@@ -233,7 +271,7 @@ case class TableUtils(sparkSession: SparkSession) {
 
   def partitions(tableName: String, subPartitionsFilter: Map[String, String] = Map.empty): Seq[String] = {
     if (!tableExists(tableName)) return Seq.empty[String]
-    val format = tableFormat(tableName)
+    val format = tableReadFormat(tableName)
 
     if (format == Iceberg) {
       if (subPartitionsFilter.nonEmpty) {
@@ -595,17 +633,6 @@ case class TableUtils(sparkSession: SparkSession) {
     }
   }
 
-  protected[spark] def getWriteFormat: Format = {
-    (useIceberg, maybeWriteFormat) match {
-      // if explicitly configured Iceberg - we go with that setting
-      case (true, _) => Iceberg
-      // else if there is a write format we pick that
-      case (false, Some(format)) => format
-      // fallback to hive (parquet)
-      case (false, None) => Hive
-    }
-  }
-
   private def createTableSql(tableName: String,
                              schema: StructType,
                              partitionColumns: Seq[String],
@@ -615,7 +642,7 @@ case class TableUtils(sparkSession: SparkSession) {
       .filterNot(field => partitionColumns.contains(field.name))
       .map(field => s"`${field.name}` ${field.dataType.catalogString}")
 
-    val writeFormat = getWriteFormat
+    val writeFormat = tableWriteFormatProvider.get(tableName)
 
     logger.info(
       s"Choosing format: $writeFormat based on useIceberg flag = $useIceberg and " +
