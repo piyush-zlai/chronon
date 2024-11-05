@@ -230,9 +230,7 @@ lazy val api = project
     libraryDependencies ++=
       fromMatrix(scalaVersion.value, "spark-sql/provided") ++
         Seq(
-          // [DPRTI-492][OAI_CHANGES]: thrift 0.13.0 can't be installed on our machine,
-          // depending on deprecated openssl@1.1
-          "org.apache.thrift" % "libthrift" % "0.18.0",
+          "org.apache.thrift" % "libthrift" % "0.13.0",
           "org.scala-lang" % "scala-reflect" % scalaVersion.value,
           "org.scala-lang.modules" %% "scala-collection-compat" % "2.6.0",
           "com.novocode" % "junit-interface" % "0.11" % "test",
