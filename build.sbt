@@ -333,7 +333,7 @@ lazy val aggregator = project
 
 lazy val online = project
   .dependsOn(aggregator.%("compile->compile;test->test"))
-  .enablePlugins(BuildInfoPlugin)
+  .enablePlugins(BuildInfoPlugin, JmhPlugin)
   .settings(
     publishSettings,
     crossScalaVersions := supportedVersions,
@@ -343,7 +343,11 @@ lazy val online = project
       "com.datadoghq" % "java-dogstatsd-client" % "2.7",
       "org.rogach" %% "scallop" % "4.0.1",
       "net.jodah" % "typetools" % "0.4.1",
-      "com.github.ben-manes.caffeine" % "caffeine" % "2.8.5"
+      "com.github.ben-manes.caffeine" % "caffeine" % "2.8.5",
+      "org.openjdk.jmh" % "jmh-core" % "1.37",
+      "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37",
+      "io.vertx" % "vertx-core" % "4.5.10",
+      "io.vertx" % "vertx-web" % "4.5.10",
     ),
     libraryDependencies ++= fromMatrix(scalaVersion.value, "spark-all", "scala-parallel-collections", "netty-buffer"),
     version := git.versionProperty.value
