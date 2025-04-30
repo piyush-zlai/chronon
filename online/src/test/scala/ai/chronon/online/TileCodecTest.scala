@@ -17,19 +17,10 @@
 package ai.chronon.online
 
 import org.slf4j.LoggerFactory
-import ai.chronon.api.{
-  Aggregation,
-  Builders,
-  FloatType,
-  IntType,
-  ListType,
-  LongType,
-  Operation,
-  Row,
-  StringType,
-  TimeUnit,
-  Window
-}
+import ai.chronon.api.{Aggregation, Builders, FloatType, IntType, ListType, LongType, Operation, Row, StringType, TimeUnit, Window}
+import org.apache.avro.Schema
+import org.apache.fury.Fury
+import org.apache.fury.config.Language
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -167,5 +158,14 @@ class TileCodecTest {
         logger.info(s"Checking: $name")
         assertEquals(expected, actual)
     }
+  }
+
+  @Test
+  def testSomeFuryStuff(): Unit = {
+    val testData: (Map[String, Any], Schema) = FeatureGenerator2.testData(1000)
+    val fury = Fury.builder.withLanguage(Language.JAVA).requireClassRegistration(false).build
+    val bytes = fury.serialize(testData._1)
+    val deserialized = fury.deserialize(bytes)
+    println(deserialized)
   }
 }

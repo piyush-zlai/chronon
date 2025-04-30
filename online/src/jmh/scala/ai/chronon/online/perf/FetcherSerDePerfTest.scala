@@ -9,6 +9,8 @@ import io.vertx.core.spi.json.JsonCodec
 import java.util
 import scala.collection.JavaConverters._
 import ai.chronon.online.AvroCodec
+import org.apache.fury.Fury
+import org.apache.fury.config.Language
 import java.util.Base64
 
 // To build: sbt 'online/jmh:compile'
@@ -26,6 +28,7 @@ class FetcherSerDePerfTest {
 
   private var jsonCodec: JsonCodec = _
   private var avroCodec: AvroCodec = _
+  private var furyCodec: Fury = _
 
   @Benchmark
   def benchmarkFeaturesJsonRoundTrip(): Unit = {
@@ -46,6 +49,14 @@ class FetcherSerDePerfTest {
 //    println(s"##### Size of map ${decodedMap.size}")
   }
 
+  @Benchmark
+  def benchmarkFeaturesToFuryRoundTrip(): Unit = {
+    val furyBytes = furyCodec.serialize(featureMap.asInstanceOf[Map[String, AnyRef]])
+    //println(s"##### Size of avro bytes ${avroBytes.size}")
+    val decodedMap = furyCodec.deserialize(furyBytes).asInstanceOf[Map[String, AnyRef]]
+    //    println(s"##### Size of map ${decodedMap.size}")
+  }
+
   @Setup
   def setup(): Unit = {
     val (map, avroSchema) = FeatureGenerator.testData(Integer.valueOf(size))
@@ -53,6 +64,7 @@ class FetcherSerDePerfTest {
     schema = avroSchema
     jsonCodec = Json.CODEC
     avroCodec = AvroCodec.of(schema.toString)
+    furyCodec = Fury.builder.withLanguage(Language.JAVA).requireClassRegistration(false).build
   }
 
   @TearDown

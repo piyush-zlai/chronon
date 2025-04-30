@@ -348,6 +348,8 @@ lazy val online = project
       "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37",
       "io.vertx" % "vertx-core" % "4.5.10",
       "io.vertx" % "vertx-web" % "4.5.10",
+      "org.apache.fury" % "fury-core" % "0.10.0",
+      "org.apache.fury" % "fury-format" % "0.10.0",
     ),
     libraryDependencies ++= fromMatrix(scalaVersion.value, "spark-all", "scala-parallel-collections", "netty-buffer"),
     version := git.versionProperty.value
