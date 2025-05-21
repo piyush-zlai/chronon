@@ -14,7 +14,7 @@ import org.apache.fury.config.Language
 import java.util.Base64
 
 // To build: sbt 'online/jmh:compile'
-// To run: sbt 'online/jmh:run -i 10 -wi 5 -f1 ai.chronon.online.perf.FetcherSerDePerfTest'
+// To run: sbt 'online/jmh:run -i 3 -wi 3 -f1 ai.chronon.online.perf.FetcherSerDePerfTest'
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.AverageTime))
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -33,28 +33,26 @@ class FetcherSerDePerfTest {
   @Benchmark
   def benchmarkFeaturesJsonRoundTrip(): Unit = {
     val jsonString = jsonCodec.toString(featureMap.asJava)
-    jsonString.size
-    //println(s"##### Size of json string: ${jsonString.size}; Size of map ${featureMap.size}")
     val decodedMap = jsonCodec.fromString(jsonString, classOf[util.Map[String, Any]])
-//    println(s"##### Size of map ${decodedMap.size}")
+  }
+
+  @Benchmark
+  def benchmarkFeaturesToAvroBase64RoundTrip(): Unit = {
+    val avroBytes = avroCodec.encode(featureMap.asInstanceOf[Map[String, AnyRef]])
+    val base64Bytes = Base64.getEncoder.encodeToString(avroBytes)
+    val decodedMap = avroCodec.decodeMap(Base64.getDecoder.decode(base64Bytes))
   }
 
   @Benchmark
   def benchmarkFeaturesToAvroRoundTrip(): Unit = {
     val avroBytes = avroCodec.encode(featureMap.asInstanceOf[Map[String, AnyRef]])
-    //println(s"##### Size of avro bytes ${avroBytes.size}")
-    val base64Bytes = Base64.getEncoder.encodeToString(avroBytes)
-    //println(s"##### Size of base64 string: ${base64Bytes.size}; Size of map ${featureMap.size}")
-    val decodedMap = avroCodec.decodeMap(Base64.getDecoder.decode(base64Bytes))
-//    println(s"##### Size of map ${decodedMap.size}")
+    val decodedMap = avroCodec.decodeMap(avroBytes)
   }
 
   @Benchmark
   def benchmarkFeaturesToFuryRoundTrip(): Unit = {
     val furyBytes = furyCodec.serialize(featureMap.asInstanceOf[Map[String, AnyRef]])
-    //println(s"##### Size of avro bytes ${avroBytes.size}")
     val decodedMap = furyCodec.deserialize(furyBytes).asInstanceOf[Map[String, AnyRef]]
-    //    println(s"##### Size of map ${decodedMap.size}")
   }
 
   @Setup
