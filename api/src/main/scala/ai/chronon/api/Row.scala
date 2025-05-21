@@ -124,6 +124,85 @@ object Row {
     }
   }
 
+  private val passThroughFunc: Any => Any = { value: Any => value }
+
+  // recursively traverse a logical struct, and convert it chronon's row type
+  def fromCached[CompositeType, BinaryType, ArrayType, StringType](dataType: DataType,
+                                                                   decomposer: (CompositeType, Int) => Iterator[Any],
+                                                                   debinarizer: BinaryType => Array[Byte],
+                                                                   delister: ArrayType => util.ArrayList[Any],
+                                                                   deStringer: StringType => String): Any => Any = {
+
+    def edit(dataType: DataType): Any => Any =
+      fromCached(dataType, decomposer, debinarizer, delister, deStringer)
+
+    def guard(func: Any => Any): Any => Any = { value =>
+      if (value == null) value else func(value)
+    }
+
+    val baseFunc: Any => Any = dataType match {
+      case StructType(_, fields) =>
+        val length = fields.length
+        val funcs: Array[Any => Any] = fields.map(_.fieldType).map(edit)
+
+        guard { value: Any =>
+          val iter = decomposer(value.asInstanceOf[CompositeType], length)
+
+          val newArr = new Array[Any](length)
+          var idx = 0
+          while (iter.hasNext) {
+            val value = iter.next()
+            newArr.update(idx, funcs(idx)(value))
+            idx += 1
+          }
+          newArr
+        }
+
+      case ListType(elemType) =>
+        val func = edit(elemType)
+
+        guard { value: Any =>
+          val arr = delister(value.asInstanceOf[ArrayType])
+
+          if (func != passThroughFunc) {
+            var idx = 0
+            while (idx < arr.size) {
+              arr.set(idx, func(arr.get(idx)))
+              idx += 1
+            }
+          }
+
+          arr
+
+        }
+
+      case MapType(keyType, valueType) =>
+        val keyFunc = edit(keyType)
+        val valueFunc = edit(valueType)
+
+        guard { value: Any =>
+          val newMap = new util.HashMap[Any, Any]()
+          val map = value.asInstanceOf[util.Map[Any, Any]]
+          val iter = map.entrySet().iterator()
+          while (iter.hasNext) {
+            val entry = iter.next()
+            newMap.put(keyFunc(entry.getKey), valueFunc(entry.getValue))
+          }
+          newMap
+        }
+
+      case BinaryType =>
+        guard { value: Any =>
+          debinarizer(value.asInstanceOf[BinaryType])
+        }
+
+      case StringType => guard { value: Any => deStringer(value.asInstanceOf[StringType]) }
+      case _          => passThroughFunc
+    }
+
+    baseFunc
+  }
+
   // recursively traverse a chronon dataType value, and convert it to an external type
   def to[StructType, BinaryType, ListType, MapType, OutputSchema](
       value: Any,

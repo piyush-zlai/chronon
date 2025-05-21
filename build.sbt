@@ -38,6 +38,10 @@ ThisBuild / developers := List(
 )
 ThisBuild / assembly / test := {}
 
+ThisBuild / resolvers ++= Seq(
+  "LI" at "https://linkedin.jfrog.io/artifactory/avro-util/"
+)
+
 val use_spark_3_5 = settingKey[Boolean]("Flag to build for 3.5")
 ThisBuild / use_spark_3_5 := false 
 
@@ -346,6 +350,7 @@ lazy val online = project
       "com.github.ben-manes.caffeine" % "caffeine" % "2.8.5",
       "org.openjdk.jmh" % "jmh-core" % "1.37",
       "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37",
+      "com.linkedin.avroutil1" % "avro-fastserde"% "0.4.25",
       "io.vertx" % "vertx-core" % "4.5.10",
       "io.vertx" % "vertx-web" % "4.5.10",
       "org.apache.fury" % "fury-core" % "0.10.0",

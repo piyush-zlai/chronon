@@ -16,11 +16,13 @@
 
 package ai.chronon.online
 
-import ai.chronon.api.{DataType, Row}
+import ai.chronon.api.{DataType, Row, StructType}
 import org.apache.avro.Schema
 import org.apache.avro.Schema.Field
 import org.apache.avro.file.SeekableByteArrayInput
 import org.apache.avro.generic.{GenericData, GenericDatumReader, GenericDatumWriter, GenericRecord}
+import com.linkedin.avro.fastserde.FastGenericDatumReader
+import com.linkedin.avro.fastserde.FastGenericDatumWriter
 import org.apache.avro.io._
 
 import java.io.ByteArrayOutputStream
@@ -33,8 +35,8 @@ class AvroCodec(val schemaStr: String) extends Serializable {
 
   // we reuse a lot of intermediate
   // lazy vals so that spark can serialize & ship the codec to executors
-  @transient private lazy val datumWriter = new GenericDatumWriter[GenericRecord](schema)
-  @transient private lazy val datumReader = new GenericDatumReader[GenericRecord](schema)
+  @transient private lazy val datumWriter = new FastGenericDatumWriter[GenericRecord](schema)
+  @transient private lazy val datumReader = new FastGenericDatumReader[GenericRecord](schema)
 
   @transient private lazy val outputStream = new ByteArrayOutputStream()
   @transient private var jsonEncoder: JsonEncoder = null
@@ -44,6 +46,9 @@ class AvroCodec(val schemaStr: String) extends Serializable {
   @transient private var binaryEncoder: BinaryEncoder = null
   @transient private var decoder: BinaryDecoder = null
   @transient lazy val schemaElems: Array[Field] = schema.getFields.toScala.toArray
+  @transient lazy val toChrononRowFunc: Any => Array[Any] =
+    AvroConversions.genericRecordToChrononRowConverter(chrononSchema.asInstanceOf[StructType])
+
   def encode(valueMap: Map[String, AnyRef]): Array[Byte] = {
     val record = new GenericData.Record(schema)
     schemaElems.foreach { field =>
@@ -95,18 +100,20 @@ class AvroCodec(val schemaStr: String) extends Serializable {
     datumReader.read(null, decoder)
   }
 
+  def decodeArray(bytes: Array[Byte]): Array[Any] = {
+    if (bytes == null) return null
+    toChrononRowFunc(decode(bytes))
+  }
+
   def decodeRow(bytes: Array[Byte]): Array[Any] =
-    AvroConversions.toChrononRow(decode(bytes), chrononSchema).asInstanceOf[Array[Any]]
+    toChrononRowFunc(decode(bytes))
 
   def decodeRow(bytes: Array[Byte], millis: Long, mutation: Boolean = false): ArrayRow =
     new ArrayRow(decodeRow(bytes), millis, mutation)
 
   def decodeMap(bytes: Array[Byte]): Map[String, AnyRef] = {
     if (bytes == null) return null
-    val output = AvroConversions
-      .toChrononRow(decode(bytes), chrononSchema)
-      .asInstanceOf[Array[Any]]
-    fieldNames.iterator.zip(output.iterator.map(_.asInstanceOf[AnyRef])).toMap
+    fieldNames.iterator.zip(decodeArray(bytes).iterator.map(_.asInstanceOf[AnyRef])).toMap
   }
 }
 

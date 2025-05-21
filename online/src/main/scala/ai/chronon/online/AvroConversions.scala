@@ -26,6 +26,7 @@ import java.nio.ByteBuffer
 import java.util
 import scala.collection.JavaConverters._
 import scala.collection.{AbstractIterator, mutable}
+import com.linkedin.avro.fastserde.{primitive => fastavro}
 
 object AvroConversions {
 
@@ -110,6 +111,89 @@ object AvroConversions {
         throw new UnsupportedOperationException(
           s"Cannot convert chronon type $dataType to avro type. Cast it to string please")
     }
+  }
+
+  def genericRecordToChrononRowConverter(schema: StructType): Any => Array[Any] = {
+    val cachedFunc = toChrononRowCached(schema)
+
+    { value: Any =>
+      if (value == null) null
+      else {
+        cachedFunc(value).asInstanceOf[Array[Any]]
+      }
+    }
+  }
+
+  private def toChrononRowCached(dataType: DataType): Any => Any = {
+    Row.fromCached[GenericRecord, ByteBuffer, Any, Utf8](
+      dataType,
+      { (record: GenericRecord, recordLength: Int) =>
+        new AbstractIterator[Any]() {
+          var idx = 0
+          override def next(): Any = {
+            val res = record.get(idx)
+            idx += 1
+            res
+          }
+          override def hasNext: Boolean = idx < recordLength
+        }
+      },
+      { (byteBuffer: ByteBuffer) => byteBuffer.array() },
+      { // cases are ordered by most frequent use
+        // TODO: Leverage type info if this case match proves to be expensive
+        case doubles: fastavro.PrimitiveDoubleArrayList =>
+          val arr = new util.ArrayList[Any](doubles.size)
+          val iterator = doubles.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case longs: fastavro.PrimitiveLongArrayList =>
+          val arr = new util.ArrayList[Any](longs.size)
+          val iterator = longs.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case genericArray: GenericData.Array[Any] =>
+          val arr = new util.ArrayList[Any](genericArray.size)
+          val iterator = genericArray.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case ints: fastavro.PrimitiveIntArrayList =>
+          val arr = new util.ArrayList[Any](ints.size)
+          val iterator = ints.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case floats: fastavro.PrimitiveFloatArrayList =>
+          val arr = new util.ArrayList[Any](floats.size)
+          val iterator = floats.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case bools: fastavro.PrimitiveBooleanArrayList =>
+          val arr = new util.ArrayList[Any](bools.size)
+          val iterator = bools.iterator()
+          while (iterator.hasNext) {
+            arr.add(iterator.next())
+          }
+          arr
+
+        case valueOfUnknownType =>
+          throw new RuntimeException(s"Found unknown list type in avro record: ${valueOfUnknownType.getClass.getName}")
+      },
+      { (avString: Utf8) => avString.toString }
+    )
   }
 
   def fromChrononRow(value: Any,
