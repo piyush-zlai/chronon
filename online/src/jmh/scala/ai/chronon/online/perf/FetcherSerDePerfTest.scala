@@ -30,13 +30,13 @@ class FetcherSerDePerfTest {
   private var avroCodec: AvroCodec = _
   private var furyCodec: Fury = _
 
-  @Benchmark
+  //@Benchmark
   def benchmarkFeaturesJsonRoundTrip(): Unit = {
     val jsonString = jsonCodec.toString(featureMap.asJava)
     val decodedMap = jsonCodec.fromString(jsonString, classOf[util.Map[String, Any]])
   }
 
-  @Benchmark
+  //@Benchmark
   def benchmarkFeaturesToAvroBase64RoundTrip(): Unit = {
     val avroBytes = avroCodec.encode(featureMap.asInstanceOf[Map[String, AnyRef]])
     val base64Bytes = Base64.getEncoder.encodeToString(avroBytes)
@@ -62,7 +62,7 @@ class FetcherSerDePerfTest {
     schema = avroSchema
     jsonCodec = Json.CODEC
     avroCodec = AvroCodec.of(schema.toString)
-    furyCodec = Fury.builder.withLanguage(Language.JAVA).requireClassRegistration(false).build
+    furyCodec = Fury.builder.withLanguage(Language.JAVA).requireClassRegistration(false).withRefTracking(false).build
   }
 
   @TearDown
